@@ -1,0 +1,17 @@
+{
+  "name": "3d-snake-game",
+  "version": "1.0.0",
+  "description": "A 3D version of the classic Snake game using Three.js",
+  "main": "script.js",
+  "scripts": {
+    "start": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.157.0"
+  },
+  "devDependencies": {
+    "vite": "^4.5.0"
+  }
+}
