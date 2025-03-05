@@ -1,12 +1,75 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+
 document.addEventListener('DOMContentLoaded', () => {
-    // Get canvas and context
-    const canvas = document.getElementById('game-canvas');
-    const ctx = canvas.getContext('2d');
+    // Three.js setup
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x222222);
+    document.getElementById('game-canvas').replaceWith(renderer.domElement);
+    renderer.domElement.id = 'game-canvas';
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Setup camera and controls
+    camera.position.set(0, 20, 20);
+    camera.lookAt(0, 0, 0);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.maxPolarAngle = Math.PI / 2;
+    controls.minDistance = 10;
+    controls.maxDistance = 30;
+
+    // Add lighting and shadows
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    const ambientLight = new THREE.AmbientLight(0x404040);
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(15, 15, 15);
+    directionalLight.castShadow = true;
+    directionalLight.shadow.camera.near = 1;
+    directionalLight.shadow.camera.far = 50;
+    directionalLight.shadow.camera.left = -25;
+    directionalLight.shadow.camera.right = 25;
+    directionalLight.shadow.camera.top = 25;
+    directionalLight.shadow.camera.bottom = -25;
+    directionalLight.shadow.mapSize.width = 2048;
+    directionalLight.shadow.mapSize.height = 2048;
+    scene.add(directionalLight);
+
+    // Add grid and ground
+    const gridHelper = new THREE.GridHelper(20, 20);
+    scene.add(gridHelper);
+
+    // Add ground plane
+    const groundGeometry = new THREE.PlaneGeometry(20, 20);
+    const groundMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+    const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = 0;
+    ground.receiveShadow = true;
+    scene.add(ground);
     
     // Game variables
-    const gridSize = 20;
-    const gridWidth = canvas.width / gridSize;
-    const gridHeight = canvas.height / gridSize;
+    const gridSize = 1;
+    const gridWidth = 20;
+    const gridHeight = 20;
+    const snakeGeometry = new THREE.BoxGeometry(0.9, 0.9, 0.9);
+    const snakeMaterial = new THREE.MeshPhongMaterial({ color: 0x4CAF50 });
+    const foodGeometry = new THREE.SphereGeometry(0.5);
+    const foodMaterial = new THREE.MeshPhongMaterial({ color: 0xFF5722 });
+    const snakeMeshes = [];
     let snake = [];
     let food = {};
     let direction = 'right';
@@ -200,25 +263,50 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Draw game
     function draw() {
-        // Clear canvas
-        ctx.fillStyle = '#222';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // Draw snake
+        // Update snake segments
+        while (snakeMeshes.length > snake.length) {
+            const mesh = snakeMeshes.pop();
+            scene.remove(mesh);
+            mesh.geometry.dispose();
+            mesh.material.dispose();
+        }
+        while (snakeMeshes.length < snake.length) {
+            const mesh = new THREE.Mesh(snakeGeometry, snakeMaterial.clone());
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            snakeMeshes.push(mesh);
+            scene.add(mesh);
+
+        // Update snake positions
         snake.forEach((segment, index) => {
-            // Head is a different color
+            const mesh = snakeMeshes[index];
+            mesh.position.set(
+                segment.x - gridWidth/2,
+                0.5,
+                segment.y - gridHeight/2
+            );
             if (index === 0) {
-                ctx.fillStyle = '#4CAF50'; // Green head
+                mesh.material.color.setHex(0x4CAF50); // Head color
             } else {
-                ctx.fillStyle = '#8BC34A'; // Lighter green body
+                mesh.material.color.setHex(0x8BC34A); // Body color
             }
-            
-            ctx.fillRect(segment.x * gridSize, segment.y * gridSize, gridSize - 1, gridSize - 1);
         });
-        
-        // Draw food
-        ctx.fillStyle = '#FF5722'; // Orange food
-        ctx.fillRect(food.x * gridSize, food.y * gridSize, gridSize - 1, gridSize - 1);
+
+        // Update food position
+        if (!window.foodMesh) {
+            window.foodMesh = new THREE.Mesh(foodGeometry, foodMaterial);
+            scene.add(window.foodMesh);
+        }
+        window.foodMesh.position.set(
+            food.x - gridWidth/2,
+            0.5,
+            food.y - gridHeight/2
+        );
+
+        // Render scene
+        controls.update();
+        renderer.render(scene, camera);
+        requestAnimationFrame(draw);
     }
     
     // Game over
@@ -226,18 +314,31 @@ document.addEventListener('DOMContentLoaded', () => {
         clearInterval(gameInterval);
         gameRunning = false;
         startButton.textContent = 'Start Game';
-        
-        // Display game over message
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        ctx.font = '30px Arial';
-        ctx.fillStyle = 'white';
-        ctx.textAlign = 'center';
-        ctx.fillText('Game Over!', canvas.width / 2, canvas.height / 2 - 15);
-        
-        ctx.font = '20px Arial';
-        ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 + 20);
+
+        // Create game over text
+        const gameOverText = document.createElement('div');
+        gameOverText.style.position = 'absolute';
+        gameOverText.style.top = '50%';
+        gameOverText.style.left = '50%';
+        gameOverText.style.transform = 'translate(-50%, -50%)';
+        gameOverText.style.color = 'white';
+        gameOverText.style.textAlign = 'center';
+        gameOverText.style.backgroundColor = 'rgba(0, 0, 0, 0.75)';
+        gameOverText.style.padding = '20px';
+        gameOverText.style.borderRadius = '10px';
+        gameOverText.innerHTML = `
+            <h2 style="margin: 0 0 10px 0">Game Over!</h2>
+            <p style="margin: 0">Score: ${score}</p>
+        `;
+
+        // Add to game container
+        const gameContainer = document.querySelector('.game-container');
+        gameContainer.appendChild(gameOverText);
+
+        // Remove after 3 seconds
+        setTimeout(() => {
+            gameContainer.removeChild(gameOverText);
+        }, 3000);
     }
     
     // Initialize the game on load
